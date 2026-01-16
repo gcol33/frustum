@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/gcol33/frustum/schema/scene.schema.json",
+  "title": "Frustum Scene",
+  "description": "Canonical scene schema for Frustum 3D rendering",
+  "type": "object",
+  "required": ["camera", "elements", "bounds"],
+  "properties": {
+    "camera": {
+      "$ref": "#/definitions/Camera"
+    },
+    "elements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/SceneElement"
+      }
+    },
+    "bounds": {
+      "$ref": "#/definitions/Bounds"
+    }
+  },
+  "definitions": {
+    "Camera": {
+      "type": "object",
+      "required": ["position", "target", "up", "projection", "near", "far", "fov_or_height"],
+      "properties": {
+        "position": {
+          "$ref": "#/definitions/Vec3"
+        },
+        "target": {
+          "$ref": "#/definitions/Vec3"
+        },
+        "up": {
+          "$ref": "#/definitions/Vec3"
+        },
+        "projection": {
+          "type": "string",
+          "enum": ["perspective", "orthographic"]
+        },
+        "near": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "far": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "fov_or_height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "Bounds": {
+      "type": "object",
+      "required": ["min", "max"],
+      "properties": {
+        "min": {
+          "$ref": "#/definitions/Vec3"
+        },
+        "max": {
+          "$ref": "#/definitions/Vec3"
+        }
+      }
+    },
+    "Vec3": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "SceneElement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "positions", "point_size"],
+          "properties": {
+            "type": {
+              "const": "point_cloud"
+            },
+            "positions": {
+              "type": "array",
+              "items": { "type": "number" }
+            },
+            "scalars": {
+              "type": "array",
+              "items": { "type": "number" }
+            },
+            "point_size": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "positions", "line_width"],
+          "properties": {
+            "type": {
+              "const": "polyline"
+            },
+            "positions": {
+              "type": "array",
+              "items": { "type": "number" }
+            },
+            "line_width": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "positions", "indices"],
+          "properties": {
+            "type": {
+              "const": "mesh"
+            },
+            "positions": {
+              "type": "array",
+              "items": { "type": "number" }
+            },
+            "indices": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 0 }
+            },
+            "normals": {
+              "type": "array",
+              "items": { "type": "number" }
+            },
+            "scalars": {
+              "type": "array",
+              "items": { "type": "number" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
