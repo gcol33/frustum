@@ -3,6 +3,7 @@
 //! GPU rendering backend for Frustum using wgpu.
 
 pub mod audit;
+pub mod font;
 pub mod invariants;
 pub mod metrics;
 pub mod primitives;
@@ -18,7 +19,7 @@ use wgpu::util::DeviceExt;
 
 pub use audit::AuditBundle;
 pub use invariants::{compare_for_regression, RegressionResult, RegressionTolerance};
-pub use primitives::SimpleVertex;
+pub use primitives::{ExpandedLabel, SimpleVertex, TextVertex};
 
 /// Errors that can occur during rendering.
 #[derive(Error, Debug)]
@@ -93,7 +94,7 @@ pub struct RenderMetadata {
     pub adapter_name: String,
 }
 
-/// Internal renderer state with mesh, point, and line pipelines.
+/// Internal renderer state with mesh, point, line, and text pipelines.
 struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -102,6 +103,7 @@ struct Renderer {
     uniform_bind_group: wgpu::BindGroup,
     point_pipeline: primitives::PointPipeline,
     line_pipeline: primitives::LinePipeline,
+    text_pipeline: primitives::TextPipeline,
     metadata: RenderMetadata,
 }
 
@@ -224,9 +226,10 @@ impl Renderer {
             cache: None,
         });
 
-        // Create point and line pipelines
+        // Create point, line, and text pipelines
         let point_pipeline = primitives::PointPipeline::new(&device);
         let line_pipeline = primitives::LinePipeline::new(&device);
+        let text_pipeline = primitives::TextPipeline::new(&device, &queue);
 
         Ok(Self {
             device,
@@ -236,6 +239,7 @@ impl Renderer {
             uniform_bind_group,
             point_pipeline,
             line_pipeline,
+            text_pipeline,
             metadata,
         })
     }
@@ -429,12 +433,13 @@ impl Renderer {
         Ok(pixels)
     }
 
-    /// Render meshes, points, and lines using all pipelines.
+    /// Render meshes, points, lines, and text using all pipelines.
     fn render_scene(
         &self,
         mesh_vertices: &[Vertex],
         point_vertices: &[SimpleVertex],
         line_vertices: &[SimpleVertex],
+        labels: &[primitives::ExpandedLabel],
         point_size: f32,
         view_proj: Mat4,
         camera_right: glam::Vec3,
@@ -548,6 +553,9 @@ impl Renderer {
 
             // Render lines
             self.line_pipeline.render(&mut render_pass, &self.queue, &self.device, line_vertices, view_proj);
+
+            // Render text labels (billboarded textured quads)
+            self.text_pipeline.render(&mut render_pass, &self.queue, &self.device, labels, view_proj, camera_right, camera_up);
         }
 
         encoder.copy_texture_to_buffer(
@@ -595,9 +603,9 @@ async fn render_to_png_async(scene: &Scene, config: &RenderConfig) -> Result<Vec
     let (camera_right, camera_up) = compute_camera_basis(&scene.camera);
 
     // Convert scene elements to vertices
-    let (mesh_vertices, point_vertices, line_vertices, point_size) = scene_to_vertices(scene);
+    let (mesh_vertices, point_vertices, line_vertices, labels, point_size) = scene_to_vertices(scene);
 
-    let pixels = renderer.render_scene(&mesh_vertices, &point_vertices, &line_vertices, point_size, view_proj, camera_right, camera_up, scene.light.as_ref(), config)?;
+    let pixels = renderer.render_scene(&mesh_vertices, &point_vertices, &line_vertices, &labels, point_size, view_proj, camera_right, camera_up, scene.light.as_ref(), config)?;
 
     // Encode to PNG
     encode_png(&pixels, config.width, config.height)
@@ -630,7 +638,7 @@ async fn render_with_audit_async(
     let (camera_right, camera_up) = compute_camera_basis(&scene.camera);
 
     // Convert scene elements to vertices
-    let (mesh_vertices, point_vertices, line_vertices, point_size) = scene_to_vertices(scene);
+    let (mesh_vertices, point_vertices, line_vertices, labels, point_size) = scene_to_vertices(scene);
 
     // Compute primitive counts
     let mut primitive_counts = PrimitiveCounts::default();
@@ -709,7 +717,7 @@ async fn render_with_audit_async(
     };
 
     // Render
-    let pixels = renderer.render_scene(&mesh_vertices, &point_vertices, &line_vertices, point_size, view_proj, camera_right, camera_up, scene.light.as_ref(), config)?;
+    let pixels = renderer.render_scene(&mesh_vertices, &point_vertices, &line_vertices, &labels, point_size, view_proj, camera_right, camera_up, scene.light.as_ref(), config)?;
 
     // Compute geometry probes (simplified for now)
     let geometry = GeometryProbes {
@@ -848,14 +856,15 @@ fn get_solid_color(material: &frustum_core::Material) -> [f32; 3] {
     }
 }
 
-/// Convert scene elements to separate vertex arrays for meshes, points, and lines.
-fn scene_to_vertices(scene: &Scene) -> (Vec<Vertex>, Vec<SimpleVertex>, Vec<SimpleVertex>, f32) {
+/// Convert scene elements to separate vertex arrays for meshes, points, lines, and labels.
+fn scene_to_vertices(scene: &Scene) -> (Vec<Vertex>, Vec<SimpleVertex>, Vec<SimpleVertex>, Vec<primitives::ExpandedLabel>, f32) {
     use frustum_core::scene::SceneElement;
     use glam::Vec3;
 
     let mut mesh_vertices = Vec::new();
     let mut point_vertices = Vec::new();
     let mut line_vertices = Vec::new();
+    let mut labels = Vec::new();
     let mut max_point_size = 4.0f32;
 
     // Default colors for primitives without materials
@@ -863,6 +872,7 @@ fn scene_to_vertices(scene: &Scene) -> (Vec<Vertex>, Vec<SimpleVertex>, Vec<Simp
     let default_point_color = [1.0, 0.5, 0.0]; // Orange
     let default_line_color = [0.2, 0.8, 0.2];  // Green
     let default_axis_color = [0.8, 0.8, 0.8];  // Light gray
+    let default_label_color = [0.9, 0.9, 0.9]; // Light gray for labels
 
     for element in &scene.elements {
         match element {
@@ -961,7 +971,7 @@ fn scene_to_vertices(scene: &Scene) -> (Vec<Vertex>, Vec<SimpleVertex>, Vec<Simp
                 }
             }
             SceneElement::Axes(axes) => {
-                let (polylines, _labels) = axes.expand();
+                let (polylines, axis_labels) = axes.expand();
                 let color = default_axis_color; // Axes always use default color (per spec: SolidMaterial only)
 
                 for line in polylines {
@@ -977,11 +987,29 @@ fn scene_to_vertices(scene: &Scene) -> (Vec<Vertex>, Vec<SimpleVertex>, Vec<Simp
                         });
                     }
                 }
+
+                // Convert axis labels to expanded labels for rendering
+                // Default label size based on scene bounds extent
+                let extent = [
+                    scene.bounds.max[0] - scene.bounds.min[0],
+                    scene.bounds.max[1] - scene.bounds.min[1],
+                    scene.bounds.max[2] - scene.bounds.min[2],
+                ];
+                let label_size = extent.iter().cloned().fold(0.0f32, f32::max) * 0.03;
+
+                for label in axis_labels {
+                    labels.push(primitives::ExpandedLabel {
+                        position: label.position,
+                        text: label.text,
+                        size: label_size,
+                        color: default_label_color,
+                    });
+                }
             }
         }
     }
 
-    (mesh_vertices, point_vertices, line_vertices, max_point_size)
+    (mesh_vertices, point_vertices, line_vertices, labels, max_point_size)
 }
 
 fn encode_png(pixels: &[u8], width: u32, height: u32) -> Result<Vec<u8>, RenderError> {

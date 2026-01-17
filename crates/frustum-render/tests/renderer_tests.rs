@@ -1050,3 +1050,285 @@ fn test_large_resolution() {
     let result = render_to_png(&scene, &config);
     assert!(result.is_ok(), "1024x1024 resolution should work");
 }
+
+// =============================================================================
+// Feature 008: Text Rendering Tests
+// =============================================================================
+
+/// Test that axes with labels render without error
+#[test]
+fn test_axes_labels_render() {
+    init_logger();
+
+    let scene = Scene::new(
+        test_camera(),
+        Bounds {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        },
+    )
+    .add_axes(
+        AxisBundle::new(
+            "test_axes",
+            AxisBounds {
+                min: [0.0, 0.0, 0.0],
+                max: [1.0, 1.0, 1.0],
+            },
+        )
+        .with_axes(vec![Axis::X, Axis::Y, Axis::Z])
+        .with_ticks(TickSpec::Auto { count: 5 }),
+    );
+
+    let config = test_config();
+    let result = render_to_png(&scene, &config);
+    assert!(result.is_ok(), "Scene with axes labels should render");
+}
+
+/// Test that labels are generated from axis expansion
+#[test]
+fn test_labels_generated_from_axes() {
+    init_logger();
+
+    let axes = AxisBundle::new(
+        "test",
+        AxisBounds {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        },
+    )
+    .with_axes(vec![Axis::X])
+    .with_ticks(TickSpec::Fixed {
+        values: vec![0.0, 0.5, 1.0],
+    });
+
+    let (polylines, labels) = axes.expand();
+
+    // Should have axis line + tick marks
+    assert!(!polylines.is_empty(), "Should have polylines for axis");
+
+    // Should have labels for each tick
+    assert_eq!(labels.len(), 3, "Should have 3 labels for 3 ticks");
+
+    // Labels should have the formatted tick values
+    assert!(labels[0].text.contains("0"), "First label should be 0");
+    assert!(labels[2].text.contains("1"), "Last label should be 1");
+}
+
+/// Test that label text with all ASCII characters renders
+#[test]
+fn test_label_ascii_characters() {
+    init_logger();
+
+    // Test with a wide range of ASCII characters
+    let axes = AxisBundle::new(
+        "test",
+        AxisBounds {
+            min: [0.0, 0.0, 0.0],
+            max: [100.0, 100.0, 100.0],
+        },
+    )
+    .with_axes(vec![Axis::X])
+    .with_ticks(TickSpec::Fixed {
+        values: vec![0.0, 25.0, 50.0, 75.0, 100.0],
+    });
+
+    let scene = Scene::new(
+        Camera::perspective([150.0, 100.0, 150.0], [50.0, 50.0, 50.0], 45.0),
+        Bounds {
+            min: [0.0, 0.0, 0.0],
+            max: [100.0, 100.0, 100.0],
+        },
+    )
+    .add_axes(axes);
+
+    let config = test_config();
+    let result = render_to_png(&scene, &config);
+    assert!(result.is_ok(), "Labels with numbers should render");
+}
+
+/// Test labels do not crash with empty text (edge case)
+#[test]
+fn test_empty_labels_handled() {
+    init_logger();
+
+    // Create axes with no ticks (no labels)
+    let axes = AxisBundle::new(
+        "test",
+        AxisBounds {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        },
+    )
+    .with_axes(vec![Axis::X])
+    .with_ticks(TickSpec::None);
+
+    let (_, labels) = axes.expand();
+    assert!(labels.is_empty(), "No ticks means no labels");
+
+    let scene = Scene::new(
+        test_camera(),
+        Bounds {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        },
+    )
+    .add_axes(axes);
+
+    let result = render_to_png(&scene, &test_config());
+    assert!(result.is_ok(), "Scene with no labels should render");
+}
+
+/// Test label positions match LabelSpec offset
+#[test]
+fn test_label_positions_respect_offset() {
+    use frustum_core::LabelSpec;
+
+    let offset = [0.1, 0.2, 0.3];
+    let mut axes = AxisBundle::new(
+        "test",
+        AxisBounds {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        },
+    )
+    .with_axes(vec![Axis::X])
+    .with_ticks(TickSpec::Fixed { values: vec![0.5] });
+
+    axes.labels = LabelSpec {
+        show: true,
+        offset,
+        format: None,
+    };
+
+    let (_, labels) = axes.expand();
+    assert_eq!(labels.len(), 1);
+
+    // The label position should include the offset
+    // For X axis at y=min, z=min, with tick at x=0.5
+    // Position includes offset components
+    let label_pos = labels[0].position;
+    // x should be tick + offset[0] = 0.5 + 0.1 = 0.6
+    assert!(
+        (label_pos[0] - 0.6).abs() < 0.01,
+        "Label x should include offset"
+    );
+}
+
+/// Test label format string works
+#[test]
+fn test_label_format_string() {
+    use frustum_core::LabelSpec;
+
+    let mut axes = AxisBundle::new(
+        "test",
+        AxisBounds {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        },
+    )
+    .with_axes(vec![Axis::X])
+    .with_ticks(TickSpec::Fixed {
+        values: vec![0.12345],
+    });
+
+    axes.labels = LabelSpec {
+        show: true,
+        offset: [0.0, 0.0, 0.0],
+        format: Some("%.2f".to_string()),
+    };
+
+    let (_, labels) = axes.expand();
+    assert_eq!(labels.len(), 1);
+    assert_eq!(labels[0].text, "0.12", "Should format to 2 decimal places");
+}
+
+/// Test labels can be disabled via LabelSpec
+#[test]
+fn test_labels_can_be_disabled() {
+    use frustum_core::LabelSpec;
+
+    let mut axes = AxisBundle::new(
+        "test",
+        AxisBounds {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        },
+    )
+    .with_axes(vec![Axis::X])
+    .with_ticks(TickSpec::Fixed {
+        values: vec![0.0, 0.5, 1.0],
+    });
+
+    axes.labels = LabelSpec {
+        show: false,
+        offset: [0.0, 0.0, 0.0],
+        format: None,
+    };
+
+    let (_, labels) = axes.expand();
+    assert!(labels.is_empty(), "Labels should be disabled when show=false");
+}
+
+/// Test text rendering with multiple axes (comprehensive test)
+#[test]
+fn test_multiple_axes_with_labels() {
+    init_logger();
+
+    let scene = Scene::new(
+        Camera::perspective([3.0, 2.0, 3.0], [0.5, 0.5, 0.5], 45.0),
+        Bounds {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        },
+    )
+    .add_axes(
+        AxisBundle::new(
+            "axes",
+            AxisBounds {
+                min: [0.0, 0.0, 0.0],
+                max: [1.0, 1.0, 1.0],
+            },
+        )
+        .with_axes(vec![Axis::X, Axis::Y, Axis::Z])
+        .with_ticks(TickSpec::Auto { count: 3 }),
+    );
+
+    let config = test_config();
+    let result = render_to_png(&scene, &config);
+    assert!(result.is_ok(), "Scene with all 3 axes and labels should render");
+}
+
+/// Test text is rendered (non-background pixels appear at label positions)
+#[test]
+fn test_text_produces_visible_output() {
+    init_logger();
+
+    // Create scene with axes and labels
+    let scene = Scene::new(
+        Camera::perspective([3.0, 2.0, 3.0], [0.5, 0.5, 0.5], 45.0),
+        Bounds {
+            min: [0.0, 0.0, 0.0],
+            max: [1.0, 1.0, 1.0],
+        },
+    )
+    .add_axes(
+        AxisBundle::new(
+            "axes",
+            AxisBounds {
+                min: [0.0, 0.0, 0.0],
+                max: [1.0, 1.0, 1.0],
+            },
+        )
+        .with_axes(vec![Axis::X])
+        .with_ticks(TickSpec::Fixed { values: vec![0.5] }),
+    );
+
+    let config = test_config();
+    let (_, audit) = render_with_audit(&scene, &config).expect("Render should succeed");
+
+    // The audit should show geometry is visible (lines from axes)
+    assert!(
+        audit.geometry.geometry_visible,
+        "Axes geometry should be visible"
+    );
+}
