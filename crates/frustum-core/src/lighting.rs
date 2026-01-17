@@ -57,6 +57,52 @@ impl Light {
         self
     }
 
+    // =========================================================================
+    // Lighting Presets (from 009-extensions.md)
+    // =========================================================================
+
+    /// Scientific flat lighting: overhead light, moderate intensity.
+    ///
+    /// Good for data visualization where shape is important but not dramatic.
+    pub fn scientific_flat() -> Self {
+        Self::new([0.0, 1.0, 0.3], 0.8)
+    }
+
+    /// Studio soft lighting: front-top-right, balanced intensity.
+    ///
+    /// Classic 3D rendering setup, good for general purpose visualization.
+    pub fn studio_soft() -> Self {
+        Self::new([0.5, 0.7, 0.5], 1.0)
+    }
+
+    /// Rim highlight lighting: back-top light for edge emphasis.
+    ///
+    /// Creates bright edges on geometry, good for showing silhouettes.
+    pub fn rim_highlight() -> Self {
+        Self::new([-0.3, 0.5, -0.8], 1.2)
+    }
+
+    /// Depth emphasis lighting: steep top-down angle.
+    ///
+    /// Emphasizes depth variations and surface detail.
+    pub fn depth_emphasis() -> Self {
+        Self::new([0.1, 0.95, 0.1], 1.0)
+    }
+
+    /// Side lighting: strong lateral illumination.
+    ///
+    /// Emphasizes surface topology and small features.
+    pub fn side_light() -> Self {
+        Self::new([1.0, 0.3, 0.2], 1.0)
+    }
+
+    /// Three-quarter view lighting: classic 45-degree setup.
+    ///
+    /// Balanced illumination from front-top-left, most versatile preset.
+    pub fn three_quarter() -> Self {
+        Self::new([0.577, 0.577, 0.577], 1.0) // Normalized (1,1,1)
+    }
+
     /// Validate the light configuration.
     ///
     /// Returns an error message if invalid, None if valid.

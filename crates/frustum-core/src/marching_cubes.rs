@@ -559,6 +559,156 @@ const TRI_TABLE: [[i8; 16]; 256] = [
     [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
 ];
 
+// =============================================================================
+// Extension 4: Multi-Isovalue Extraction (from 009-extensions.md)
+// =============================================================================
+
+/// Result of multi-isovalue extraction: a mesh with its iso-value.
+#[derive(Debug, Clone)]
+pub struct IsoSurface {
+    /// The iso-value used to extract this surface.
+    pub iso_value: f32,
+    /// The extracted mesh.
+    pub mesh: Mesh,
+}
+
+/// Extract multiple isosurfaces from a single volume.
+///
+/// This is a convenience function that calls `marching_cubes` for each iso-value
+/// and returns the results with their associated iso-values.
+///
+/// Use cases:
+/// - Layered structures (e.g., nested shells)
+/// - Threshold comparisons (e.g., probability levels)
+/// - Contour visualization
+pub fn marching_cubes_multi(volume: &Volume, iso_values: &[f32]) -> Vec<IsoSurface> {
+    iso_values
+        .iter()
+        .map(|&iso_value| IsoSurface {
+            iso_value,
+            mesh: marching_cubes(volume, iso_value),
+        })
+        .collect()
+}
+
+// =============================================================================
+// Extension 5: Derived Scalar Fields (from 009-extensions.md)
+// =============================================================================
+
+impl Volume {
+    /// Compute gradient magnitude at each grid point.
+    ///
+    /// Returns a new volume where each value is the magnitude of the gradient
+    /// at that position. Useful for edge detection and feature highlighting.
+    pub fn gradient_magnitude(&self) -> Volume {
+        let [nx, ny, nz] = self.dimensions;
+        let mut values = Vec::with_capacity(nx * ny * nz);
+
+        for z in 0..nz {
+            for y in 0..ny {
+                for x in 0..nx {
+                    let [gx, gy, gz] = self.gradient(x, y, z);
+                    let mag = (gx * gx + gy * gy + gz * gz).sqrt();
+                    values.push(mag);
+                }
+            }
+        }
+
+        Volume {
+            values,
+            dimensions: self.dimensions,
+            spacing: self.spacing,
+            origin: self.origin,
+        }
+    }
+
+    /// Compute Laplacian (divergence of gradient) at each grid point.
+    ///
+    /// Returns a new volume where each value is the Laplacian (sum of second
+    /// partial derivatives). Useful for detecting edges and inflection points.
+    pub fn laplacian(&self) -> Volume {
+        let [nx, ny, nz] = self.dimensions;
+        let mut values = Vec::with_capacity(nx * ny * nz);
+
+        for z in 0..nz {
+            for y in 0..ny {
+                for x in 0..nx {
+                    let lap = self.laplacian_at(x, y, z);
+                    values.push(lap);
+                }
+            }
+        }
+
+        Volume {
+            values,
+            dimensions: self.dimensions,
+            spacing: self.spacing,
+            origin: self.origin,
+        }
+    }
+
+    /// Compute Laplacian at a single grid point using central differences.
+    fn laplacian_at(&self, x: usize, y: usize, z: usize) -> f32 {
+        let [nx, ny, nz] = self.dimensions;
+        let center = self.get(x, y, z);
+
+        // Second derivative in x
+        let d2x = if x > 0 && x < nx - 1 {
+            (self.get(x + 1, y, z) - 2.0 * center + self.get(x - 1, y, z))
+                / (self.spacing[0] * self.spacing[0])
+        } else {
+            0.0
+        };
+
+        // Second derivative in y
+        let d2y = if y > 0 && y < ny - 1 {
+            (self.get(x, y + 1, z) - 2.0 * center + self.get(x, y - 1, z))
+                / (self.spacing[1] * self.spacing[1])
+        } else {
+            0.0
+        };
+
+        // Second derivative in z
+        let d2z = if z > 0 && z < nz - 1 {
+            (self.get(x, y, z + 1) - 2.0 * center + self.get(x, y, z - 1))
+                / (self.spacing[2] * self.spacing[2])
+        } else {
+            0.0
+        };
+
+        d2x + d2y + d2z
+    }
+
+    /// Normalize values to [0, 1] range.
+    ///
+    /// Useful for consistent colormap mapping across different scalar fields.
+    pub fn normalize(&self) -> Volume {
+        let min = self.values.iter().cloned().fold(f32::INFINITY, f32::min);
+        let max = self.values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let range = max - min;
+
+        let values = if range > 0.0 {
+            self.values.iter().map(|v| (v - min) / range).collect()
+        } else {
+            vec![0.5; self.values.len()]
+        };
+
+        Volume {
+            values,
+            dimensions: self.dimensions,
+            spacing: self.spacing,
+            origin: self.origin,
+        }
+    }
+
+    /// Get min and max values in the volume.
+    pub fn value_range(&self) -> (f32, f32) {
+        let min = self.values.iter().cloned().fold(f32::INFINITY, f32::min);
+        let max = self.values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        (min, max)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
