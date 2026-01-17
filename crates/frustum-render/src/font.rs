@@ -2,16 +2,17 @@
 //!
 //! Frustum v0.1 uses a single embedded monospace font.
 //! ASCII printable characters (0x20-0x7E) are supported.
+//! The font is a 16x16 scaled version of an 8x8 bitmap font.
 
-/// Font atlas dimensions.
-pub const ATLAS_WIDTH: u32 = 128;
-pub const ATLAS_HEIGHT: u32 = 64;
+/// Font atlas dimensions (16 chars × 16px = 256, 6 rows × 16px = 96).
+pub const ATLAS_WIDTH: u32 = 256;
+pub const ATLAS_HEIGHT: u32 = 128;
 
 /// Character cell dimensions in the atlas.
-pub const CHAR_WIDTH: u32 = 8;
-pub const CHAR_HEIGHT: u32 = 8;
+pub const CHAR_WIDTH: u32 = 16;
+pub const CHAR_HEIGHT: u32 = 16;
 
-/// Characters per row in the atlas (128 / 8 = 16).
+/// Characters per row in the atlas (256 / 16 = 16).
 pub const CHARS_PER_ROW: u32 = ATLAS_WIDTH / CHAR_WIDTH;
 
 /// First printable ASCII character.
@@ -151,34 +152,40 @@ pub fn generate_atlas() -> Vec<u8> {
         0x76DC000000000000, // 0x7E '~'
     ];
 
-    // Render each character into the atlas
+    // Render each character into the atlas (2x scaled from 8x8 to 16x16)
     for (char_idx, &bitmap) in font_data.iter().enumerate() {
         let col = char_idx as u32 % CHARS_PER_ROW;
         let row = char_idx as u32 / CHARS_PER_ROW;
         let base_x = col * CHAR_WIDTH;
         let base_y = row * CHAR_HEIGHT;
 
-        // Each row of the character (8 rows)
+        // Each row of the original 8x8 character
         for y in 0..8u32 {
             let row_bits = ((bitmap >> (56 - y * 8)) & 0xFF) as u8;
             for x in 0..8u32 {
                 let bit = (row_bits >> (7 - x)) & 1;
-                let px = base_x + x;
-                let py = base_y + y;
-                let idx = ((py * ATLAS_WIDTH + px) * 4) as usize;
 
-                if bit == 1 {
-                    // White foreground
-                    pixels[idx] = 255;
-                    pixels[idx + 1] = 255;
-                    pixels[idx + 2] = 255;
-                    pixels[idx + 3] = 255;
-                } else {
-                    // Transparent background
-                    pixels[idx] = 0;
-                    pixels[idx + 1] = 0;
-                    pixels[idx + 2] = 0;
-                    pixels[idx + 3] = 0;
+                // Scale up: each source pixel becomes a 2x2 block
+                for dy in 0..2u32 {
+                    for dx in 0..2u32 {
+                        let px = base_x + x * 2 + dx;
+                        let py = base_y + y * 2 + dy;
+                        let idx = ((py * ATLAS_WIDTH + px) * 4) as usize;
+
+                        if bit == 1 {
+                            // White foreground
+                            pixels[idx] = 255;
+                            pixels[idx + 1] = 255;
+                            pixels[idx + 2] = 255;
+                            pixels[idx + 3] = 255;
+                        } else {
+                            // Transparent background
+                            pixels[idx] = 0;
+                            pixels[idx + 1] = 0;
+                            pixels[idx + 2] = 0;
+                            pixels[idx + 3] = 0;
+                        }
+                    }
                 }
             }
         }
@@ -200,9 +207,11 @@ mod tests {
 
         // 'A' is at index 33 (0x41 - 0x20)
         // col = 33 % 16 = 1, row = 33 / 16 = 2
+        // u0 = col * CHAR_WIDTH / ATLAS_WIDTH = 1 * 16 / 256 = 1/16
+        // v0 = row * CHAR_HEIGHT / ATLAS_HEIGHT = 2 * 16 / 128 = 1/4
         let uvs = char_uvs('A');
         assert!((uvs[0] - 1.0 / 16.0).abs() < 0.001);
-        assert!((uvs[1] - 2.0 / 8.0).abs() < 0.001);
+        assert!((uvs[1] - 0.25).abs() < 0.001);
     }
 
     #[test]
@@ -214,10 +223,10 @@ mod tests {
         // 'A' is at index 33, col=1, row=2
         let base_x = 1 * CHAR_WIDTH;
         let base_y = 2 * CHAR_HEIGHT;
-        // At least some pixel in 'A' should be non-zero
+        // At least some pixel in 'A' should be non-zero (check entire 16x16 cell)
         let mut has_pixel = false;
-        for dy in 0..8 {
-            for dx in 0..8 {
+        for dy in 0..CHAR_HEIGHT {
+            for dx in 0..CHAR_WIDTH {
                 let px = base_x + dx;
                 let py = base_y + dy;
                 let i = ((py * ATLAS_WIDTH + px) * 4) as usize;

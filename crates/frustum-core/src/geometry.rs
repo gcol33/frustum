@@ -128,7 +128,7 @@ impl Default for LabelSpec {
     fn default() -> Self {
         Self {
             show: true,
-            offset: [0.05, 0.0, 0.0],
+            offset: [0.0, 0.0, 0.0], // Additional user offset (axis-specific offset computed automatically)
             format: None,
         }
     }
@@ -253,6 +253,7 @@ impl AxisBundle {
                     ));
 
                     // Ticks along X
+                    let label_offset_y = -tick_size * 1.5; // Push labels below tick marks
                     for x in tick_values(xmin, xmax) {
                         // Tick mark perpendicular to X (in Y direction)
                         polylines.push(Polyline::new(
@@ -264,7 +265,7 @@ impl AxisBundle {
                             labels.push(Label {
                                 position: [
                                     x + self.labels.offset[0],
-                                    ymin - tick_size + self.labels.offset[1],
+                                    ymin - tick_size + label_offset_y + self.labels.offset[1],
                                     zmin + self.labels.offset[2],
                                 ],
                                 text: format_tick_value(x, &self.labels.format),
@@ -280,6 +281,7 @@ impl AxisBundle {
                     ));
 
                     // Ticks along Y
+                    let label_offset_x = -tick_size * 1.5; // Push labels left of tick marks
                     for y in tick_values(ymin, ymax) {
                         // Tick mark perpendicular to Y (in X direction)
                         polylines.push(Polyline::new(
@@ -290,7 +292,7 @@ impl AxisBundle {
                         if self.labels.show {
                             labels.push(Label {
                                 position: [
-                                    xmin - tick_size + self.labels.offset[0],
+                                    xmin - tick_size + label_offset_x + self.labels.offset[0],
                                     y + self.labels.offset[1],
                                     zmin + self.labels.offset[2],
                                 ],
@@ -307,6 +309,7 @@ impl AxisBundle {
                     ));
 
                     // Ticks along Z
+                    let label_offset_x = -tick_size * 1.5; // Push labels left of tick marks
                     for z in tick_values(zmin, zmax) {
                         // Tick mark perpendicular to Z (in X direction)
                         polylines.push(Polyline::new(
@@ -317,7 +320,7 @@ impl AxisBundle {
                         if self.labels.show {
                             labels.push(Label {
                                 position: [
-                                    xmin - tick_size + self.labels.offset[0],
+                                    xmin - tick_size + label_offset_x + self.labels.offset[0],
                                     ymin + self.labels.offset[1],
                                     z + self.labels.offset[2],
                                 ],
@@ -345,13 +348,44 @@ fn format_tick_value(value: f32, format: &Option<String>) -> String {
             format!("{}", value)
         }
         _ => {
-            // Default: reasonable precision
-            if value.abs() < 0.01 || value.abs() >= 1000.0 {
-                format!("{:.2e}", value)
+            // Default: smart formatting for scientific figures
+            let abs_val = value.abs();
+
+            if abs_val == 0.0 {
+                // Zero is just zero
+                "0".to_string()
+            } else if abs_val < 0.001 || abs_val >= 10000.0 {
+                // Very small or very large: use scientific notation
+                // Format and clean up trailing zeros in mantissa
+                let s = format!("{:.1e}", value);
+                s.replace("e0", "").replace("e-0", "e-").replace("e+", "e")
+            } else if abs_val < 0.1 {
+                // Small values: show 3 decimal places
+                format_trim_zeros(value, 3)
+            } else if abs_val < 10.0 {
+                // Normal range: show 2 decimal places
+                format_trim_zeros(value, 2)
             } else {
-                format!("{:.2}", value)
+                // Larger values: show 1 decimal place
+                format_trim_zeros(value, 1)
             }
         }
+    }
+}
+
+/// Format a number with given precision, trimming unnecessary trailing zeros.
+fn format_trim_zeros(value: f32, precision: usize) -> String {
+    let s = format!("{:.prec$}", value, prec = precision);
+    // Trim trailing zeros after decimal point, but keep at least one digit
+    if s.contains('.') {
+        let trimmed = s.trim_end_matches('0');
+        if trimmed.ends_with('.') {
+            format!("{}0", trimmed)
+        } else {
+            trimmed.to_string()
+        }
+    } else {
+        s
     }
 }
 
