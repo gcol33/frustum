@@ -11,6 +11,9 @@ pub struct PointCloud {
     pub scalars: Option<Vec<f32>>,
     /// Uniform point size in pixels.
     pub point_size: f32,
+    /// Material ID reference.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub material_id: Option<String>,
 }
 
 impl PointCloud {
@@ -20,12 +23,19 @@ impl PointCloud {
             positions,
             scalars: None,
             point_size,
+            material_id: None,
         }
     }
 
     /// Set scalar values for colormap mapping.
     pub fn with_scalars(mut self, scalars: Vec<f32>) -> Self {
         self.scalars = Some(scalars);
+        self
+    }
+
+    /// Set material ID.
+    pub fn with_material(mut self, material_id: impl Into<String>) -> Self {
+        self.material_id = Some(material_id.into());
         self
     }
 
@@ -47,6 +57,9 @@ pub struct Polyline {
     pub positions: Vec<f32>,
     /// Uniform line width in pixels.
     pub line_width: f32,
+    /// Material ID reference.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub material_id: Option<String>,
 }
 
 impl Polyline {
@@ -55,7 +68,14 @@ impl Polyline {
         Self {
             positions,
             line_width,
+            material_id: None,
         }
+    }
+
+    /// Set material ID.
+    pub fn with_material(mut self, material_id: impl Into<String>) -> Self {
+        self.material_id = Some(material_id.into());
+        self
     }
 }
 
@@ -70,6 +90,269 @@ pub struct Mesh {
     pub normals: Option<Vec<f32>>,
     /// Optional per-vertex scalar values for colormap mapping.
     pub scalars: Option<Vec<f32>>,
+    /// Material ID reference.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub material_id: Option<String>,
+}
+
+/// Tick generation mode for axes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum TickSpec {
+    /// Fixed tick positions in world coordinates.
+    Fixed { values: Vec<f32> },
+    /// Automatic tick generation with approximate count.
+    Auto { count: u32 },
+    /// No ticks.
+    None,
+}
+
+impl Default for TickSpec {
+    fn default() -> Self {
+        TickSpec::Auto { count: 5 }
+    }
+}
+
+/// Label specification for axis ticks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelSpec {
+    /// Whether to generate label placeholders.
+    pub show: bool,
+    /// World-space offset from tick position.
+    pub offset: [f32; 3],
+    /// Format string for numeric labels (e.g., "%.2f").
+    pub format: Option<String>,
+}
+
+impl Default for LabelSpec {
+    fn default() -> Self {
+        Self {
+            show: true,
+            offset: [0.05, 0.0, 0.0],
+            format: None,
+        }
+    }
+}
+
+/// A label placeholder with position and text.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Label {
+    /// World-space position.
+    pub position: [f32; 3],
+    /// Label text.
+    pub text: String,
+}
+
+/// Coordinate axes as explicit geometry.
+///
+/// Axes expand into Lines primitives for rendering.
+/// No special-casing in the renderer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AxisBundle {
+    /// Unique identifier.
+    pub id: String,
+    /// Axis-aligned bounding box for the axes.
+    pub bounds: AxisBounds,
+    /// Which axes to render (subset of x, y, z).
+    pub axes: Vec<Axis>,
+    /// Line width for axis lines and ticks.
+    pub line_width: f32,
+    /// Tick specification.
+    #[serde(default)]
+    pub ticks: TickSpec,
+    /// Label specification.
+    #[serde(default)]
+    pub labels: LabelSpec,
+}
+
+/// Bounds for axis bundle.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct AxisBounds {
+    pub min: [f32; 3],
+    pub max: [f32; 3],
+}
+
+/// Which axis (X, Y, or Z).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Axis {
+    X,
+    Y,
+    Z,
+}
+
+impl AxisBundle {
+    /// Create a new axis bundle with default settings.
+    pub fn new(id: impl Into<String>, bounds: AxisBounds) -> Self {
+        Self {
+            id: id.into(),
+            bounds,
+            axes: vec![Axis::X, Axis::Y, Axis::Z],
+            line_width: 1.0,
+            ticks: TickSpec::default(),
+            labels: LabelSpec::default(),
+        }
+    }
+
+    /// Set which axes to display.
+    pub fn with_axes(mut self, axes: Vec<Axis>) -> Self {
+        self.axes = axes;
+        self
+    }
+
+    /// Set line width.
+    pub fn with_line_width(mut self, width: f32) -> Self {
+        self.line_width = width;
+        self
+    }
+
+    /// Set tick specification.
+    pub fn with_ticks(mut self, ticks: TickSpec) -> Self {
+        self.ticks = ticks;
+        self
+    }
+
+    /// Expand axes into polylines for rendering.
+    ///
+    /// Returns a list of polylines (axis lines + tick marks) and labels.
+    pub fn expand(&self) -> (Vec<Polyline>, Vec<Label>) {
+        let mut polylines = Vec::new();
+        let mut labels = Vec::new();
+
+        let [xmin, ymin, zmin] = self.bounds.min;
+        let [xmax, ymax, zmax] = self.bounds.max;
+
+        // Generate tick values
+        let tick_values = |min: f32, max: f32| -> Vec<f32> {
+            match &self.ticks {
+                TickSpec::Fixed { values } => values
+                    .iter()
+                    .filter(|&&v| v >= min && v <= max)
+                    .copied()
+                    .collect(),
+                TickSpec::Auto { count } => {
+                    if *count == 0 {
+                        return vec![];
+                    }
+                    let step = (max - min) / (*count as f32);
+                    (0..=*count).map(|i| min + i as f32 * step).collect()
+                }
+                TickSpec::None => vec![],
+            }
+        };
+
+        let tick_size = (xmax - xmin).min(ymax - ymin).min(zmax - zmin) * 0.02;
+
+        for axis in &self.axes {
+            match axis {
+                Axis::X => {
+                    // Main X axis line at y=ymin, z=zmin
+                    polylines.push(Polyline::new(
+                        vec![xmin, ymin, zmin, xmax, ymin, zmin],
+                        self.line_width,
+                    ));
+
+                    // Ticks along X
+                    for x in tick_values(xmin, xmax) {
+                        // Tick mark perpendicular to X (in Y direction)
+                        polylines.push(Polyline::new(
+                            vec![x, ymin, zmin, x, ymin - tick_size, zmin],
+                            self.line_width,
+                        ));
+
+                        if self.labels.show {
+                            labels.push(Label {
+                                position: [
+                                    x + self.labels.offset[0],
+                                    ymin - tick_size + self.labels.offset[1],
+                                    zmin + self.labels.offset[2],
+                                ],
+                                text: format_tick_value(x, &self.labels.format),
+                            });
+                        }
+                    }
+                }
+                Axis::Y => {
+                    // Main Y axis line at x=xmin, z=zmin
+                    polylines.push(Polyline::new(
+                        vec![xmin, ymin, zmin, xmin, ymax, zmin],
+                        self.line_width,
+                    ));
+
+                    // Ticks along Y
+                    for y in tick_values(ymin, ymax) {
+                        // Tick mark perpendicular to Y (in X direction)
+                        polylines.push(Polyline::new(
+                            vec![xmin, y, zmin, xmin - tick_size, y, zmin],
+                            self.line_width,
+                        ));
+
+                        if self.labels.show {
+                            labels.push(Label {
+                                position: [
+                                    xmin - tick_size + self.labels.offset[0],
+                                    y + self.labels.offset[1],
+                                    zmin + self.labels.offset[2],
+                                ],
+                                text: format_tick_value(y, &self.labels.format),
+                            });
+                        }
+                    }
+                }
+                Axis::Z => {
+                    // Main Z axis line at x=xmin, y=ymin
+                    polylines.push(Polyline::new(
+                        vec![xmin, ymin, zmin, xmin, ymin, zmax],
+                        self.line_width,
+                    ));
+
+                    // Ticks along Z
+                    for z in tick_values(zmin, zmax) {
+                        // Tick mark perpendicular to Z (in X direction)
+                        polylines.push(Polyline::new(
+                            vec![xmin, ymin, z, xmin - tick_size, ymin, z],
+                            self.line_width,
+                        ));
+
+                        if self.labels.show {
+                            labels.push(Label {
+                                position: [
+                                    xmin - tick_size + self.labels.offset[0],
+                                    ymin + self.labels.offset[1],
+                                    z + self.labels.offset[2],
+                                ],
+                                text: format_tick_value(z, &self.labels.format),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        (polylines, labels)
+    }
+}
+
+fn format_tick_value(value: f32, format: &Option<String>) -> String {
+    match format {
+        Some(fmt) if fmt.contains('%') => {
+            // Simple printf-style formatting (just %.Nf for now)
+            if let Some(precision) = fmt.strip_prefix("%.").and_then(|s| s.strip_suffix('f')) {
+                if let Ok(p) = precision.parse::<usize>() {
+                    return format!("{:.prec$}", value, prec = p);
+                }
+            }
+            format!("{}", value)
+        }
+        _ => {
+            // Default: reasonable precision
+            if value.abs() < 0.01 || value.abs() >= 1000.0 {
+                format!("{:.2e}", value)
+            } else {
+                format!("{:.2}", value)
+            }
+        }
+    }
 }
 
 impl Mesh {
@@ -80,6 +363,7 @@ impl Mesh {
             indices,
             normals: None,
             scalars: None,
+            material_id: None,
         }
     }
 
@@ -92,6 +376,12 @@ impl Mesh {
     /// Set scalar values for colormap mapping.
     pub fn with_scalars(mut self, scalars: Vec<f32>) -> Self {
         self.scalars = Some(scalars);
+        self
+    }
+
+    /// Set material ID.
+    pub fn with_material(mut self, material_id: impl Into<String>) -> Self {
+        self.material_id = Some(material_id.into());
         self
     }
 

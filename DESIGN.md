@@ -17,7 +17,20 @@ The goal is to provide Matplotlib-grade 3D capability with a modern rendering ar
 - Narrow scope, long-term stability over features
 - Errors must be early, explicit, and informative
 
+**Primitive Rule (frozen):** If it can be expressed as a combination of existing primitives, it is not a new primitive.
+
 Anything that violates these principles is out of scope.
+
+## Coordinate System
+
+Frustum uses the OpenGL convention:
+- Right-handed coordinate system
+- +X → right
+- +Y → up
+- −Z → forward (into the scene)
+- +Z → toward the viewer
+
+Camera looks down −Z in its local space.
 
 ## Required Feature Set
 
@@ -25,50 +38,57 @@ Anything that violates these principles is out of scope.
 
 - Scene as a single immutable object
 - Explicit camera definition:
-  - position
-  - target
+  - eye (camera position)
+  - target (look-at point)
   - up vector
   - projection type (orthographic, perspective)
   - near and far planes
+  - fov_y (perspective) or view_height (orthographic)
 - Explicit coordinate system
 - Explicit scene bounds
+- Schema version identifier (e.g. `frustum/scene/v1`)
 
 No hidden defaults beyond documented, frozen ones.
 
 ### 2. Geometry Primitives
 
-Must support:
+Five primitives (complete set):
 
-**Point clouds**
-- per-point position
-- per-point scalar for colormap
-- uniform point size
+**Points** — unordered 0D geometry
+- positions, optional scalars, uniform size
 
-**Line geometry**
-- polylines
-- uniform line width
+**Lines** — piecewise linear 1D geometry
+- ordered positions, optional scalars, uniform width
 
-**Triangle meshes**
-- indexed triangles
-- optional per-vertex normals
-- optional per-vertex scalar values
+**Curves** — parametric/spline 1D geometry
+- control points, curve type, explicit sampling
+- evaluated to Lines before rendering
+
+**Meshes** — 2D manifold in 3D (triangles only)
+- positions, indices, optional normals, optional scalars
+
+**Axes** — explicit reference geometry
+- bounds, ticks, labels
+- expanded to Lines before rendering
 
 Out of scope (v1):
 - text as 3D geometry
-- parametric surfaces beyond triangle meshes
 - volumetric rendering
+- quads (all meshes are triangles)
 
 ### 3. Marching Cubes
+
+Pipeline: volume → Mesh → render
 
 - Input: regular 3D scalar volume
 - Configurable voxel spacing and origin
 - Single or multiple iso-levels
-- Output: triangle mesh
+- Output: Mesh primitive (triangle mesh)
 - Normals must be stable and well-defined
 - Optional pre-smoothing
 - Optional mesh decimation (bounded, explicit)
 
-Marching cubes is a pre-processing step, not a dynamic interactive system.
+Marching cubes is a pre-processing step, not a renderer feature.
 
 ### 4. Materials and Color
 

@@ -3,7 +3,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::camera::Camera;
-use crate::geometry::{Mesh, PointCloud, Polyline};
+use crate::geometry::{AxisBundle, Mesh, PointCloud, Polyline};
+use crate::lighting::Light;
+use crate::materials::Material;
 
 /// A scene element that can be rendered.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,6 +14,7 @@ pub enum SceneElement {
     PointCloud(PointCloud),
     Polyline(Polyline),
     Mesh(Mesh),
+    Axes(AxisBundle),
 }
 
 /// Axis-aligned bounding box.
@@ -28,6 +31,13 @@ pub struct Scene {
     pub camera: Camera,
     /// All geometry elements in the scene.
     pub elements: Vec<SceneElement>,
+    /// Materials available in the scene.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub materials: Vec<Material>,
+    /// Optional directional light for Lambertian shading.
+    /// If None, meshes render with flat colors (no lighting).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub light: Option<Light>,
     /// Explicit scene bounds.
     pub bounds: Bounds,
 }
@@ -38,8 +48,27 @@ impl Scene {
         Self {
             camera,
             elements: Vec::new(),
+            materials: Vec::new(),
+            light: None,
             bounds,
         }
+    }
+
+    /// Set the directional light for the scene.
+    pub fn with_light(mut self, light: Light) -> Self {
+        self.light = Some(light);
+        self
+    }
+
+    /// Add a material to the scene.
+    pub fn add_material(mut self, material: Material) -> Self {
+        self.materials.push(material);
+        self
+    }
+
+    /// Look up a material by ID.
+    pub fn get_material(&self, id: &str) -> Option<&Material> {
+        self.materials.iter().find(|m| m.id() == id)
     }
 
     /// Add a point cloud to the scene.
@@ -57,6 +86,12 @@ impl Scene {
     /// Add a mesh to the scene.
     pub fn add_mesh(mut self, mesh: Mesh) -> Self {
         self.elements.push(SceneElement::Mesh(mesh));
+        self
+    }
+
+    /// Add coordinate axes to the scene.
+    pub fn add_axes(mut self, axes: AxisBundle) -> Self {
+        self.elements.push(SceneElement::Axes(axes));
         self
     }
 

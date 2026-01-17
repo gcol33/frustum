@@ -1,0 +1,185 @@
+{
+  "metadata": {
+    "scene_hash": "3e2be27257a26224",
+    "schema_version": "frustum/scene/v1",
+    "renderer_version": "0.1.0",
+    "backend": "Vulkan",
+    "adapter": "NVIDIA GeForce RTX 5080",
+    "resolution": [
+      512,
+      512
+    ],
+    "camera": {
+      "projection": "perspective",
+      "position": [
+        2.0,
+        1.5,
+        2.0
+      ],
+      "target": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "near": 0.1,
+      "far": 1000.0,
+      "fov_or_height": 45.0
+    },
+    "world_bounds": {
+      "min": [
+        -1.0,
+        -1.0,
+        -1.0
+      ],
+      "max": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "extent": [
+        2.0,
+        2.0,
+        2.0
+      ]
+    },
+    "primitive_counts": {
+      "meshes": 1,
+      "total_triangles": 12,
+      "total_vertices": 24,
+      "point_clouds": 0,
+      "total_points": 0,
+      "polylines": 0,
+      "total_line_segments": 0
+    }
+  },
+  "geometry": {
+    "ndc_bounds": null,
+    "depth_stats": {
+      "min": 0.0,
+      "max": 1.0,
+      "mean": 0.5,
+      "far_plane_percentage": 0.0
+    },
+    "degenerate_count": 0,
+    "clipped_count": 0,
+    "backface_count": 0,
+    "geometry_visible": true,
+    "has_invalid_values": false
+  },
+  "image_metrics": {
+    "histogram": {
+      "red": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        197532,
+        0,
+        15300,
+        0,
+        0,
+        0,
+        0,
+        0,
+        49312,
+        0,
+        0
+      ],
+      "green": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        197532,
+        0,
+        64612,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "blue": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        197532,
+        24656,
+        0,
+        0,
+        0,
+        0,
+        0,
+        39956,
+        0,
+        0
+      ],
+      "alpha": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        262144
+      ]
+    },
+    "edge_density": 0.007324106,
+    "transparent_percentage": 0.0,
+    "background_percentage": 0.0,
+    "connected_components": 1,
+    "dominant_colors": [
+      [
+        88,
+        88,
+        104
+      ],
+      [
+        216,
+        120,
+        120
+      ],
+      [
+        216,
+        120,
+        216
+      ],
+      [
+        120,
+        120,
+        216
+      ]
+    ]
+  },
+  "invariants": {
+    "errors": [],
+    "warnings": [],
+    "notes": [
+      "Scene contains 1 meshes (12 triangles), 0 point clouds, 0 polylines",
+      "1 distinct regions detected in rendered image"
+    ],
+    "overall": "Pass"
+  }
+}
