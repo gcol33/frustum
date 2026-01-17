@@ -9,7 +9,7 @@ keywords = ["3d", "graphics", "visualization", "wgpu", "rendering"]
 categories = ["graphics", "science", "rendering"]
 
 [dependencies]
-frustum-core = { path = "../frustum-core" }
+frustum-core = "0.1.0"
 wgpu = "24"
 pollster = "0.4"
 image = { version = "0.25", default-features = false, features = ["png"] }
