@@ -3,7 +3,10 @@ name = "frustum-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Core scene model and geometry primitives for Frustum"
+repository.workspace = true
+description = "Core scene model and geometry primitives for Frustum GPU rendering"
+keywords = ["3d", "graphics", "visualization", "scientific", "rendering"]
+categories = ["graphics", "science", "rendering"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

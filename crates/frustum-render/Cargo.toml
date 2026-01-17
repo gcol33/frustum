@@ -3,7 +3,10 @@ name = "frustum-render"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "GPU rendering backend for Frustum using wgpu"
+keywords = ["3d", "graphics", "visualization", "wgpu", "rendering"]
+categories = ["graphics", "science", "rendering"]
 
 [dependencies]
 frustum-core = { path = "../frustum-core" }
