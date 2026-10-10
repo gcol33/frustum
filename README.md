@@ -2,6 +2,10 @@
 
 A deterministic, GPU-first 3D rendering framework for scientific figures.
 
+## Installation
+
+*Coming soon*
+
 ## What Frustum Is
 
 Frustum provides Matplotlib-grade 3D capability with a modern rendering architecture, explicit scene semantics, and cross-language parity between Python and R.
@@ -66,10 +70,6 @@ Frustum guarantees:
 
 Frustum does not guarantee:
 - Bitwise identical pixels across GPUs
-
-## Installation
-
-*Coming soon*
 
 ## License
 
