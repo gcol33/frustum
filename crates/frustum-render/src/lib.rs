@@ -55,18 +55,28 @@ impl Default for RenderConfig {
     }
 }
 
-/// Vertex with position, normal, and color.
+/// Colormap coordinate of a vertex that takes its colour from `color`
+/// rather than from a colormap table.
+pub const NO_CMAP: [f32; 2] = [-1.0, -1.0];
+
+/// Vertex with position, normal, color and colormap coordinate.
+///
+/// `cmap` is `[t, row]`: the fragment shader samples row `row` of the
+/// colormap texture at `t` in [0, 1], interpolating `t` across the
+/// triangle so a coarse mesh still shows the colormap exactly. A negative
+/// `row` or `t` selects `color` instead.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct Vertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub color: [f32; 3],
+    pub cmap: [f32; 2],
 }
 
 impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 3] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3];
+    const ATTRIBS: [wgpu::VertexAttribute; 4] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x2];
 
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -154,28 +164,59 @@ impl Renderer {
             mapped_at_creation: false,
         });
 
+        // Colormap texture: one row per colormap, sampled by the mesh shader
+        let (cmap_view, cmap_sampler) = create_colormap_texture(&device, &queue);
+
         // Create bind group layout and bind group
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Uniform Bind Group Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
         });
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Uniform Bind Group"),
             layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&cmap_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&cmap_sampler),
+                },
+            ],
         });
 
         // Create pipeline layout
@@ -782,16 +823,19 @@ async fn render_test_triangle_async(config: &RenderConfig) -> Result<Vec<u8>, Re
             position: [0.0, 0.5, 0.0],
             normal,
             color: [1.0, 0.0, 0.0],
+            cmap: NO_CMAP,
         },
         Vertex {
             position: [-0.5, -0.5, 0.0],
             normal,
             color: [0.0, 1.0, 0.0],
+            cmap: NO_CMAP,
         },
         Vertex {
             position: [0.5, -0.5, 0.0],
             normal,
             color: [0.0, 0.0, 1.0],
+            cmap: NO_CMAP,
         },
     ];
 
@@ -816,6 +860,77 @@ fn compute_camera_basis(camera: &frustum_core::Camera) -> (glam::Vec3, glam::Vec
     (right, up)
 }
 
+/// Upload the colormap tables as one RGBA8 texture, one row per colormap in
+/// [`frustum_core::Colormap::ALL`] order, with a linear clamp-to-edge sampler.
+fn create_colormap_texture(device: &wgpu::Device, queue: &wgpu::Queue) -> (wgpu::TextureView, wgpu::Sampler) {
+    use frustum_core::{Colormap, COLORMAP_TABLE_LEN};
+
+    let rows = Colormap::ALL.len() as u32;
+    let width = COLORMAP_TABLE_LEN as u32;
+    let mut pixels = Vec::with_capacity((rows * width * 4) as usize);
+    for cmap in Colormap::ALL.iter() {
+        for rgb in cmap.table().iter() {
+            for c in rgb {
+                pixels.push((c.clamp(0.0, 1.0) * 255.0).round() as u8);
+            }
+            pixels.push(255);
+        }
+    }
+
+    let size = wgpu::Extent3d { width, height: rows, depth_or_array_layers: 1 };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Colormap Texture"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::ImageCopyTexture {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &pixels,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(rows),
+        },
+        size,
+    );
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("Colormap Sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+    (view, sampler)
+}
+
+/// Normalised position of a scalar in the material's range, or None when
+/// the scalar is not finite.
+fn scalar_to_t(scalar: f32, material: &frustum_core::ScalarMappedMaterial) -> Option<f32> {
+    if !scalar.is_finite() {
+        return None;
+    }
+    let [min, max] = material.range;
+    let t = if max > min {
+        (scalar - min) / (max - min)
+    } else {
+        0.5
+    };
+    Some(if material.clamp { t.clamp(0.0, 1.0) } else { t })
+}
+
 /// Get color for a scalar value using a material's colormap.
 fn scalar_to_color(
     scalar: f32,
@@ -823,18 +938,9 @@ fn scalar_to_color(
 ) -> [f32; 3] {
     use frustum_core::Colormap;
 
-    if !scalar.is_finite() {
+    let Some(t) = scalar_to_t(scalar, material) else {
         return [material.missing_color[0], material.missing_color[1], material.missing_color[2]];
-    }
-
-    let [min, max] = material.range;
-    let t = if max > min {
-        (scalar - min) / (max - min)
-    } else {
-        0.5
     };
-
-    let t = if material.clamp { t.clamp(0.0, 1.0) } else { t };
 
     if let Some(cmap) = Colormap::from_name(&material.colormap) {
         cmap.sample(t)
@@ -842,6 +948,20 @@ fn scalar_to_color(
         // Unknown colormap, use grayscale
         let v = t.clamp(0.0, 1.0);
         [v, v, v]
+    }
+}
+
+/// Colormap coordinate `[t, row]` for a scalar, or NO_CMAP when the scalar is
+/// missing or the colormap name is unknown (the vertex colour applies then).
+fn scalar_to_cmap(
+    scalar: f32,
+    material: &frustum_core::ScalarMappedMaterial,
+) -> [f32; 2] {
+    use frustum_core::Colormap;
+
+    match (scalar_to_t(scalar, material), Colormap::from_name(&material.colormap)) {
+        (Some(t), Some(cmap)) => [t.clamp(0.0, 1.0), cmap.index() as f32],
+        _ => NO_CMAP,
     }
 }
 
@@ -906,21 +1026,21 @@ fn scene_to_vertices(scene: &Scene) -> (Vec<Vertex>, Vec<SimpleVertex>, Vec<Simp
                             face_normal.to_array()
                         };
 
-                        let color = if use_scalar_color {
+                        let (color, cmap) = if use_scalar_color {
                             let scalars = mesh.scalars.as_ref().unwrap();
                             let scalar = scalars.get(i).copied().unwrap_or(0.0);
                             if let Some(frustum_core::Material::ScalarMapped(sm)) = material {
-                                scalar_to_color(scalar, sm)
+                                (scalar_to_color(scalar, sm), scalar_to_cmap(scalar, sm))
                             } else {
-                                default_mesh_color
+                                (default_mesh_color, NO_CMAP)
                             }
                         } else if let Some(mat) = material {
-                            get_solid_color(mat)
+                            (get_solid_color(mat), NO_CMAP)
                         } else {
-                            default_mesh_color
+                            (default_mesh_color, NO_CMAP)
                         };
 
-                        mesh_vertices.push(Vertex { position, normal, color });
+                        mesh_vertices.push(Vertex { position, normal, color, cmap });
                     }
                 }
             }

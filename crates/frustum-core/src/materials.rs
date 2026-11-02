@@ -4,6 +4,7 @@
 //! Geometry references materials by ID.
 
 use serde::{Deserialize, Serialize};
+use crate::colormap_tables;
 
 /// A material that can be referenced by geometry primitives.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,7 +114,41 @@ pub enum Colormap {
     Cividis,
 }
 
+/// Number of entries in each colormap table.
+pub const COLORMAP_TABLE_LEN: usize = colormap_tables::TABLE_LEN;
+
 impl Colormap {
+    /// All colormaps, in the order of [`Colormap::index`].
+    pub const ALL: [Colormap; 5] = [
+        Colormap::Viridis,
+        Colormap::Plasma,
+        Colormap::Inferno,
+        Colormap::Magma,
+        Colormap::Cividis,
+    ];
+
+    /// Position of this colormap in [`Colormap::ALL`].
+    pub fn index(&self) -> usize {
+        match self {
+            Colormap::Viridis => 0,
+            Colormap::Plasma => 1,
+            Colormap::Inferno => 2,
+            Colormap::Magma => 3,
+            Colormap::Cividis => 4,
+        }
+    }
+
+    /// The colormap's sRGB table, sampled at t = i / (len - 1).
+    pub fn table(&self) -> &'static [[f32; 3]; COLORMAP_TABLE_LEN] {
+        match self {
+            Colormap::Viridis => &colormap_tables::VIRIDIS,
+            Colormap::Plasma => &colormap_tables::PLASMA,
+            Colormap::Inferno => &colormap_tables::INFERNO,
+            Colormap::Magma => &colormap_tables::MAGMA,
+            Colormap::Cividis => &colormap_tables::CIVIDIS,
+        }
+    }
+
     /// Get the colormap name as a string.
     pub fn name(&self) -> &'static str {
         match self {
@@ -138,60 +173,26 @@ impl Colormap {
     }
 
     /// Sample the colormap at a normalized value t in [0, 1].
-    /// Returns RGB color.
+    /// Returns the sRGB colour as matplotlib defines it.
     pub fn sample(&self, t: f32) -> [f32; 3] {
         let t = t.clamp(0.0, 1.0);
-        match self {
-            Colormap::Viridis => sample_viridis(t),
-            Colormap::Plasma => sample_plasma(t),
-            Colormap::Inferno => sample_inferno(t),
-            Colormap::Magma => sample_magma(t),
-            Colormap::Cividis => sample_cividis(t),
-        }
+        sample_table(self.table(), t)
     }
 }
 
-// Colormap data - using simplified polynomial approximations
-// These are perceptually uniform colormaps
-
-fn sample_viridis(t: f32) -> [f32; 3] {
-    // Viridis: dark purple -> blue -> teal -> green -> yellow
-    let r = (0.267004 + t * (0.282327 + t * (-0.078908 + t * (2.772570 + t * (-3.263024 + t * 1.228522))))).clamp(0.0, 1.0);
-    let g = (0.004874 + t * (1.260580 + t * (-0.221097 + t * (-0.766924 + t * (1.442251 + t * -0.714853))))).clamp(0.0, 1.0);
-    let b = (0.329415 + t * (1.701596 + t * (-5.413392 + t * (10.519490 + t * (-8.923144 + t * 2.786102))))).clamp(0.0, 1.0);
-    [r, g, b]
-}
-
-fn sample_plasma(t: f32) -> [f32; 3] {
-    // Plasma: dark blue -> purple -> pink -> orange -> yellow
-    let r = (0.050383 + t * (2.023000 + t * (-1.294560 + t * (-0.795670 + t * (1.974810 + t * -0.958000))))).clamp(0.0, 1.0);
-    let g = (0.029803 + t * (-0.221780 + t * (1.735400 + t * (-0.719190 + t * (-0.551390 + t * 0.727600))))).clamp(0.0, 1.0);
-    let b = (0.527975 + t * (1.573200 + t * (-4.576600 + t * (6.762040 + t * (-4.665700 + t * 1.379000))))).clamp(0.0, 1.0);
-    [r, g, b]
-}
-
-fn sample_inferno(t: f32) -> [f32; 3] {
-    // Inferno: black -> purple -> red -> orange -> yellow
-    let r = (0.001462 + t * (1.265980 + t * (0.835940 + t * (-2.371800 + t * (3.010950 + t * -1.735700))))).clamp(0.0, 1.0);
-    let g = (0.000466 + t * (-0.055530 + t * (1.827670 + t * (-2.178070 + t * (1.911960 + t * -0.505430))))).clamp(0.0, 1.0);
-    let b = (0.013866 + t * (2.066870 + t * (-4.865040 + t * (5.696400 + t * (-3.285300 + t * 0.398620))))).clamp(0.0, 1.0);
-    [r, g, b]
-}
-
-fn sample_magma(t: f32) -> [f32; 3] {
-    // Magma: black -> purple -> pink -> orange -> white
-    let r = (0.001462 + t * (1.032690 + t * (0.958610 + t * (-1.681100 + t * (2.341200 + t * -1.654800))))).clamp(0.0, 1.0);
-    let g = (0.000466 + t * (-0.267510 + t * (1.912500 + t * (-1.795950 + t * (1.512450 + t * -0.361250))))).clamp(0.0, 1.0);
-    let b = (0.013866 + t * (2.377680 + t * (-5.298660 + t * (5.932700 + t * (-3.114900 + t * 0.116820))))).clamp(0.0, 1.0);
-    [r, g, b]
-}
-
-fn sample_cividis(t: f32) -> [f32; 3] {
-    // Cividis: colorblind-friendly, blue -> gray -> yellow
-    let r = (-0.046889 + t * (1.573410 + t * (-1.259290 + t * (0.984680 + t * (-0.253910 + t * 0.003180))))).clamp(0.0, 1.0);
-    let g = (0.135112 + t * (0.654420 + t * (0.117460 + t * (-0.037870 + t * (0.114390 + t * 0.016420))))).clamp(0.0, 1.0);
-    let b = (0.311950 + t * (0.579930 + t * (-1.507500 + t * (1.556530 + t * (-0.735880 + t * 0.114020))))).clamp(0.0, 1.0);
-    [r, g, b]
+/// Look up a colormap table at t in [0, 1] with linear interpolation
+/// between the two nearest entries.
+fn sample_table(table: &[[f32; 3]; colormap_tables::TABLE_LEN], t: f32) -> [f32; 3] {
+    let x = t * (colormap_tables::TABLE_LEN - 1) as f32;
+    let i = (x.floor() as usize).min(colormap_tables::TABLE_LEN - 2);
+    let f = x - i as f32;
+    let a = table[i];
+    let b = table[i + 1];
+    [
+        a[0] + (b[0] - a[0]) * f,
+        a[1] + (b[1] - a[1]) * f,
+        a[2] + (b[2] - a[2]) * f,
+    ]
 }
 
 #[cfg(test)]
